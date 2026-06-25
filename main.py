@@ -24,11 +24,18 @@ class HealthCheckHandler(SimpleHTTPRequestHandler):
         # Prevent request logs from flooding stdout
         pass
 
+class HealthCheckServer(HTTPServer):
+    allow_reuse_address = True
+
 def run_health_check_server():
     port = int(os.getenv("PORT", 8080))
-    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    server = HealthCheckServer(("0.0.0.0", port), HealthCheckHandler)
     logger.info(f"Starting health check server on port {port}")
     server.serve_forever()
+
+async def post_init(application):
+    from handlers.user import resume_active_polling
+    await resume_active_polling(application)
 
 async def start(update, context):
     user_id = update.effective_user.id
@@ -54,7 +61,7 @@ def main():
     # Start health check server in background thread for Render
     threading.Thread(target=run_health_check_server, daemon=True).start()
 
-    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
 
     # Handlers
     application.add_handler(CommandHandler("start", start))

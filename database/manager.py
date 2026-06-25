@@ -71,6 +71,12 @@ class DatabaseManager:
                 Item.status == ItemStatus.ASSIGNED
             ).first()
 
+    def get_all_assigned_items(self):
+        with self.get_session() as session:
+            return session.query(Item).filter(
+                Item.status == ItemStatus.ASSIGNED
+            ).all()
+
     def assign_next_item(self, user_id, username):
         with self.get_session() as session:
             # Check if user already has an item

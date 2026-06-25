@@ -192,7 +192,7 @@ def cancel_active_task(user_id: int):
         task.cancel()
         logger.info(f"Cancelled active polling task for user {user_id}")
 
-async def poll_sms_task(user_id: int, url: str, initial_key: str, context: ContextTypes.DEFAULT_TYPE):
+async def poll_sms_task(user_id: int, url: str, initial_key: str, bot):
     last_key = initial_key
     logger.info(f"Started polling SMS for user {user_id} on URL: {url} starting from key {last_key}")
     try:
@@ -205,7 +205,7 @@ async def poll_sms_task(user_id: int, url: str, initial_key: str, context: Conte
                     last_key = sms_key
                     formatted_msg = format_sms_message(latest_sms)
                     try:
-                        await context.bot.send_message(
+                        await bot.send_message(
                             chat_id=user_id,
                             text=formatted_msg,
                             parse_mode="HTML"
@@ -243,7 +243,7 @@ async def user_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
                     res = await fetch_latest_sms(url)
                     initial_key = res[0] if res else ""
                     active_tasks[user_id] = asyncio.create_task(
-                        poll_sms_task(user_id, url, initial_key, context)
+                        poll_sms_task(user_id, url, initial_key, context.bot)
                     )
 
             await query.edit_message_text(
@@ -274,7 +274,7 @@ async def user_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
             # Start polling background task
             active_tasks[user_id] = asyncio.create_task(
-                poll_sms_task(user_id, url, initial_key, context)
+                poll_sms_task(user_id, url, initial_key, context.bot)
             )
 
         formatted_content = format_item_content(item.content or "")
@@ -299,3 +299,27 @@ async def user_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
             await query.edit_message_text("❌ Item rejected successfully!", reply_markup=get_user_keyboard())
         else:
             await query.edit_message_text("❌ No assigned item found to reject.", reply_markup=get_user_keyboard())
+
+async def resume_active_polling(application):
+    logger.info("Checking for active items to resume polling...")
+    assigned_items = db.get_all_assigned_items()
+    if not assigned_items:
+        logger.info("No active items found to resume polling.")
+        return
+        
+    for item in assigned_items:
+        user_id = item.user_id
+        if not user_id:
+            continue
+        url = extract_link(item.content or "")
+        if url:
+            try:
+                res = await fetch_latest_sms(url)
+                initial_key = res[0] if res else ""
+                cancel_active_task(user_id)  # Clean up any existing task in dict
+                active_tasks[user_id] = asyncio.create_task(
+                    poll_sms_task(user_id, url, initial_key, application.bot)
+                )
+                logger.info(f"Resumed SMS polling task for user {user_id} on URL: {url}")
+            except Exception as e:
+                logger.error(f"Error resuming polling task for user {user_id}: {e}")
